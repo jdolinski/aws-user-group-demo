@@ -14,7 +14,7 @@ resources.**
 
 ## References
 
-- [AWS Pipeline to Service Catalog](https://github.com/awslabs/aws-pipeline-to-service-catalog)
+- [AWS Pipeline to Service Catalog](https://github.com/awslabs/aws-pipeline-to-service-catalog) Many thanks to @anshrma for this contribution!
 - [AWS Organizations](https://aws.amazon.com/organizations/)
 - [AWS Tagging Strategies](https://aws.amazon.com/answers/account-management/aws-tagging-strategies/)
 - [Deep Dive on AWS CloudFormation](https://www.youtube.com/watch?v=01hy48R9Kr8)
