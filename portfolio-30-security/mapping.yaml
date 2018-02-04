@@ -1,0 +1,24 @@
+name: Security
+description: Contains all Security Products
+owner: jdolinski@dotcomm.org
+products:
+- name: 50-config-product
+  template: product-50-config.yaml
+  owner: jdolinski@dotcomm.org
+  description: Creates config rules for compliance and change management
+- name: 100-inspector
+  template: product-100-inspector.yaml
+  owner: jdolinski@dotcomm.org
+  description: Creates automated insepctor scans
+- name: 110-guarduty
+  template: product-110-guarduty.yaml
+  owner: jdolinski@dotcomm.org
+  description: Creates GuardDuty Monitor
+accounts:
+  - identifier: AWS User Group Demo
+    number: "Enter Account Here"
+tags:
+- Key: Name
+  Value: Security
+principals:
+- group/administrators

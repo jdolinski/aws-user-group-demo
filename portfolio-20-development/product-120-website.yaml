@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Deploy PHP website to application environment
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Application Configuration"
+        Parameters:
+          - AppCode
+          - AppDomain
+          - AppSubDomain
+Parameters:
+  AppCode:
+    Type: String
+    Description: The application code
+    MinLength: 1
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+  AppDomain:
+    Type: String
+    Description: The application URL
+    MinLength: 5
+    AllowedPattern: '[a-z\\.][a-z0-9\\.]*'
+  AppSubDomain:
+    Type: String
+    Description: The application URL
+    MinLength: 1
+    AllowedPattern: '[a-z\\.][a-z0-9\\.]*'
+
+Resources:
+  CodeDeployApp:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Ref AppCode
+
+  FiftyPercentAtATime:
+    Type: "AWS::CodeDeploy::DeploymentConfig"
+    Properties:
+      MinimumHealthyHosts:
+        Type: "FLEET_PERCENT"
+        Value: 50
+
+  DemoCodeDeployDG:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApp
+      DeploymentConfigName: !Ref FiftyPercentAtATime
+      DeploymentGroupName: "Demo"
+      Ec2TagFilters:
+        -
+          Key: Environment
+          Type: KEY_AND_VALUE
+          Value: Demo
+      Deployment:
+        Description: 3.8.4 Default Joomla! CMS
+        Revision:
+          RevisionType: S3
+          S3Location:
+            Bucket:
+              Fn::ImportValue: 'deploy-appbucketname'
+            BundleType: zip
+#            ETag: 3d5af36884b929823752d78c63deddd9
+            Key: Joomla_3.8.4-Stable-Full_Package.zip
+      ServiceRoleArn: !GetAtt CodeDeployRole.Arn
+
+  CodeDeployRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Statement:
+          - Action:
+            - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+              - codedeploy.amazonaws.com
+          Version: '2012-10-17'
+        ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
+
+Outputs:
+  domain:
+    Description: Website Domain
+    Value: !Join ["", ["http://", !Ref AppDomain]]
+  subdomain:
+    Description: Website Sub Domain
+    Value: !Join ["", ["http://", !Ref AppSubDomain]]
+  appcode:
+    Description: Application Code
+    Value: !Ref AppCode

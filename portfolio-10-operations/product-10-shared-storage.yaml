@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Storage for AWS environment.
+#
+# todo 1. Elastic Search Service
+#
+Resources:
+  S3AppBucketRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-s3appbucket-role-${AWS::Region}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudformation.amazonaws.com
+                - codedeploy.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+
+  S3AppBucketPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${AWS::StackName}-s3appbucket-policy-${AWS::Region}
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - codedeploy:*
+              - cloudformation:*
+            Resource: "*"
+          -
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetBucketPolicy
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+             - !Join ['',['arn:aws:s3:::',!Ref S3AppBucket, '/*']]
+             - !Join ['',['arn:aws:s3:::',!Ref S3AppBucket]]
+      Roles:
+        -
+          !Ref S3AppBucketRole
+
+  S3AppBucket:
+    Type: "AWS::S3::Bucket"
+    DeletionPolicy: Retain
+
+  S3LambdaBucketRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-s3lambdabucket-role-${AWS::Region}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudformation.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+
+  S3LambdaBucketPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${AWS::StackName}-s3lambdabucket-policy-${AWS::Region}
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - codedeploy:*
+              - cloudformation:*
+            Resource: "*"
+          -
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetBucketPolicy
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+             - !Join ['',['arn:aws:s3:::',!Ref S3LambdaBucket, '/*']]
+             - !Join ['',['arn:aws:s3:::',!Ref S3LambdaBucket]]
+      Roles:
+        -
+          !Ref S3LambdaBucketRole
+
+  S3LambdaBucket:
+    Type: "AWS::S3::Bucket"
+    DeletionPolicy: Retain
+
+Outputs:
+  appbucket:
+    Description: Shared Infrastructure Application Bucket Name
+    Value: !Ref S3AppBucket
+    Export:
+      Name: "deploy-appbucketname"
+  lambdabucket:
+    Description: Shared Infrastructure Lambda Bucket
+    Value: !Ref S3LambdaBucket
+    Export:
+      Name: "deploy-lambdabucketname"

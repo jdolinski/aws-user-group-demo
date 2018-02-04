@@ -1,0 +1,560 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Creates infrastructure to host PHP websites
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "VPC for Deployment"
+        Parameters:
+          - vpcid
+      -
+        Label:
+          default: "App Environment Configuration"
+        Parameters:
+          - Ami
+          - EnvironmentSize
+          - MinSize
+          - MaxSize
+          - DesiredCapacity
+      -
+        Label:
+          default: "Database Configuration"
+        Parameters:
+          - DatabaseUser
+          - DatabasePassword
+          - SnapToRestore
+      -
+        Label:
+          default: "File System Configuration"
+        Parameters:
+          - MountPoint
+      -
+        Label:
+          default: "Security Configuration"
+        Parameters:
+          - KeyName
+    ParameterLabels:
+      vpcid:
+        default: "Which VPC should this stack be deployed to?"
+
+Parameters:
+  vpcid:
+    Type: AWS::SSM::Parameter::Value<String>
+    AllowedPattern: ".+"
+    Description: Enter VPC ID (vpc-#######)
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+    AllowedPattern: ".+"
+  MinSize:
+    Type: String
+    Description: Minimum number of app servers
+    Default: "2"
+  Ami:
+    Type: String
+    Description: Amazon Machine Image (Use the AMI created by 35-php-70-configuration.yaml)
+    Default: "ami-97785bed"
+  MaxSize:
+    Type: String
+    Description: Maximum number of app servers (Desired x 2)
+    Default: "4"
+  DesiredCapacity:
+    Type: String
+    Description: Nominal Size of APP Env
+    Default: "2"
+  SnapToRestore:
+    Type: String
+    Default: ""
+    Description: Snap id to restore
+  EnvironmentSize:
+    Type: String
+    Default: SMALL
+    AllowedValues:
+      - SMALL
+      - MEDIUM
+      - LARGE
+    Description: Select Environment Size (S,M,L)
+  DatabaseUser:
+    Type: String
+    MinLength: 1
+    MaxLength: 16
+    Default: admin
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*" # start with a letter, only alphanumeric characters
+  DatabasePassword:
+    Type: String
+    MinLength: 8
+    MaxLength: 41
+    Default: sup3rS3crEt
+    NoEcho: true
+    AllowedPattern: "[a-zA-Z0-9]*" # Must only contain alphanumeric characters
+  MountPoint:
+    Type: "String"
+    Description: "The Linux mount point for the EFS volume"
+    MinLength: "1"
+    Default: "/var/www/html/efs"
+
+Conditions:
+  isRestore:
+    !Not [!Equals [!Ref SnapToRestore, ""]]
+Mappings:
+  InstanceSize:
+    SMALL:
+      "EC2": "t2.micro"
+      "DB": "db.t2.small"
+    MEDIUM:
+      "EC2": "t2.small"
+      "DB": "db.t2.small"
+    LARGE:
+      "EC2": "t2.medium"
+      "DB": "db.t2.medium"
+Resources:
+  DBAuroraCluster:
+    Type: "AWS::RDS::DBCluster"
+    DeletionPolicy: Snapshot
+    Properties:
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: aurora
+      MasterUsername: !If [isRestore, !Ref "AWS::NoValue", !Ref DatabaseUser]
+      MasterUserPassword: !If [isRestore, !Ref "AWS::NoValue", !Ref DatabasePassword]
+      SnapshotIdentifier: !If [isRestore, !Ref SnapToRestore, !Ref "AWS::NoValue"]
+      VpcSecurityGroupIds:
+        - Ref: DbSecurityGroup
+  DBAurora:
+    Type : "AWS::RDS::DBInstance"
+    Properties:
+      DBClusterIdentifier: !Ref DBAuroraCluster
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: aurora
+      DBInstanceClass: !FindInMap [InstanceSize, !Ref EnvironmentSize, DB] # Dynamic mapping + Pseudo Parameter
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      PerformanceMode: generalPurpose
+      FileSystemTags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-filesystem-${AWS::Region}
+  MountTargetPrivateA:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref SubnetPrivateA
+      SecurityGroups:
+        - !Ref FileSystemSecurityGroup
+  MountTargetPrivateB:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref SubnetPrivateB
+      SecurityGroups:
+        - !Ref FileSystemSecurityGroup
+  AutoScalingGroup:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    CreationPolicy:
+      ResourceSignal:
+        Count: !Ref DesiredCapacity
+        Timeout: "PT5M"
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: true
+    Properties:
+      Cooldown: "300"
+      DesiredCapacity: !Ref DesiredCapacity
+      HealthCheckGracePeriod: "300"
+      HealthCheckType: ELB
+      LaunchConfigurationName: !Ref LaunchConfiguration
+      LoadBalancerNames:
+        - !Ref ELB
+      MaxSize: !Ref MaxSize
+      MinSize: !Ref MinSize
+      VPCZoneIdentifier:
+        - !Ref SubnetPrivateA
+        - !Ref SubnetPrivateB
+  LaunchConfiguration:
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Properties:
+      ImageId: !Ref Ami
+      InstanceType: !FindInMap [InstanceSize, !Ref EnvironmentSize, EC2]
+      KeyName: !Ref KeyName
+      IamInstanceProfile:
+        Fn::ImportValue: 'PHP70-ManagedInstanceProfile'
+      SecurityGroups:
+        - !Ref WebSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+            #!/bin/bash -xe
+            yum install -y aws-cfn-bootstrap # good practice - always do this.
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchConfiguration --configsets full_install --region ${AWS::Region}
+            yum -y update
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          full_install: [install_cfn, install_nfs, install_page]
+        install_cfn:
+          files:
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+              mode: '000400'
+              owner: root
+              group: root
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.LaunchConfig.Metadata.AWS::CloudFormation::Init
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchConfiguration --configsets full_install --region ${AWS::Region}
+                runas=root
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files: [/etc/cfn/cfn-hup.conf, /etc/cfn/hooks.d/cfn-auto-reloader.conf]
+
+        install_page:
+          files:
+            /var/www/html/info.php:
+              content: !Join
+              - ""
+              -
+                  - "<html>"
+                  - "  <head>"
+                  - "    <title>AWS Omaha Meetup - CloudFormation</title>"
+                  - "  </head>"
+                  - "  <body>"
+                  - "    <h1>AWS Omaha Meetup - CloudFormation</h1>"
+                  - "    <?php"
+                  - "      print \"The Current Date and Time is: <br/>\";"
+                  - "      print date(\"g:i A l, F j Y.\");"
+                  - "    ?>"
+                  - "    <p/>"
+                  - "    <?php"
+                  - "      $instanceid = file_get_contents('http://instance-data/latest/meta-data/instance-id');"
+                  - "      if (empty($instanceid))"
+                  - "      {"
+                  - "        print \"Sorry, for some reason, we got no instance id back <br />\";"
+                  - "      }"
+                  - "      else"
+                  - "      {"
+                  - "        print \"EC2 instance-id = \" . $instanceid . \"<br />\";"
+                  - "      }"
+                  - "    ?>"
+                  - "    <h2>PHP Information</h2>"
+                  - "    <p/>"
+                  - "    <?php"
+                  - "      phpinfo();"
+                  - "    ?>"
+                  - "  </body>"
+                  - "</html>"
+              mode: '000644'
+              owner: root
+              group: root
+          commands:
+            01-copy-file-to-efs:
+              command: !Sub "cp -p /var/www/html/info.php ${MountPoint}"
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+        install_nfs:
+          packages:
+            apt-get:
+              nfs-utils: []
+          commands:
+            01_createdir:
+              command: !Sub "mkdir -p /${MountPoint}"
+        mount:
+          commands:
+            01_mount_private_a:
+              command: !Sub >
+                mount -t nfs4 -o nfsvers=4.1 ${FileSystem}.efs.${AWS::Region}.amazonaws.com:/ /${MountPoint}
+            02_permissions_private_a:
+              command: !Sub "chown ec2-user:ec2-user /${MountPoint}"
+
+  ELB:
+    Type: "AWS::ElasticLoadBalancing::LoadBalancer"
+    Properties:
+      CrossZone: true
+      Listeners:
+        -
+          InstancePort: "80"
+          InstanceProtocol: HTTP
+          LoadBalancerPort: "80"
+          Protocol: HTTP
+      HealthCheck:
+        HealthyThreshold: 2
+        Interval: 30
+        Target: HTTP:80/info.php
+        Timeout: 10
+        UnhealthyThreshold: 2
+      Subnets:
+        - Fn::ImportValue: !Sub '${vpcid}-NatPublicSharedA'
+        - Fn::ImportValue: !Sub '${vpcid}-NatPublicSharedB'
+      SecurityGroups:
+        - !Ref ElbSecurityGroup
+  AutoSubnetCustomResource:
+    Type: "Custom::LambdaAutoSubnet" # or AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !ImportValue sharedinf-autosubnetarn # The ARN of the lambda function - only mandatory property
+      # "Provider Defined Properties" Below..
+      DynamoDBRegion: !Ref "AWS::Region"
+      DynamoDBTable: !ImportValue sharedinf-autosubnetddbtablename
+      VPCCidr:
+        Fn::ImportValue: !Sub '${vpcid}-vpciprange'
+      Debug: "True"
+  SubnetPublicA:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !GetAtt AutoSubnetCustomResource.AppPublicCIDRA
+      MapPublicIpOnLaunch: true
+      VpcId:
+        Fn::ImportValue: !Sub '${vpcid}-vpcid'
+  SubnetPrivateA:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !GetAtt AutoSubnetCustomResource.AppPrivateCIDRA
+      MapPublicIpOnLaunch: false
+      VpcId:
+        Fn::ImportValue: !Sub '${vpcid}-vpcid'
+  SubnetPublicB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !GetAtt AutoSubnetCustomResource.AppPublicCIDRB
+      MapPublicIpOnLaunch: true
+      VpcId:
+        Fn::ImportValue: !Sub '${vpcid}-vpcid'
+  SubnetPrivateB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !GetAtt AutoSubnetCustomResource.AppPrivateCIDRB
+      MapPublicIpOnLaunch: false
+      VpcId:
+        Fn::ImportValue: !Sub '${vpcid}-vpcid'
+  SubnetRouteTableAssociatePublicA:
+    DependsOn: SubnetPublicA
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId:
+        Fn::ImportValue: !Sub '${vpcid}-publicrt'
+      SubnetId: !Ref SubnetPublicA
+  SubnetRouteTableAssociatePublicB:
+    DependsOn: SubnetPublicB
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId:
+        Fn::ImportValue: !Sub '${vpcid}-publicrt'
+      SubnetId: !Ref SubnetPublicB
+  SubnetRouteTableAssociatePrivateA:
+    DependsOn: SubnetPrivateA
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId:
+        Fn::ImportValue: !Sub '${vpcid}-privaterta'
+      SubnetId: !Ref SubnetPrivateA
+  SubnetRouteTableAssociatePrivateB:
+    DependsOn: SubnetPrivateB
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId:
+        Fn::ImportValue: !Sub '${vpcid}-privatertb'
+      SubnetId: !Ref SubnetPrivateB
+  DBSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: !Join ["", ["Stack ", !Ref "AWS::StackId"]]
+      SubnetIds:
+        - !Ref SubnetPrivateA
+        - !Ref SubnetPrivateB
+  ElbSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "ELB Security Group"
+      VpcId:
+        Fn::ImportValue: !Sub '${vpcid}-vpcid'
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          ToPort: "80"
+          FromPort: "80"
+  WebSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "EC2 Security Group"
+      VpcId:
+        Fn::ImportValue: !Sub '${vpcid}-vpcid'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          ToPort: "80"
+          FromPort: "80"
+          SourceSecurityGroupId: !Ref ElbSecurityGroup
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Database Security Group"
+      VpcId:
+        Fn::ImportValue: !Sub '${vpcid}-vpcid'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          ToPort: "3306"
+          FromPort: "3306"
+          SourceSecurityGroupId: !Ref WebSecurityGroup
+  FileSystemSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId:
+        Fn::ImportValue: !Sub '${vpcid}-vpcid'
+      GroupDescription: "EFS Security Group"
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '2049'
+        ToPort: '2049'
+        SourceSecurityGroupId: !Ref WebSecurityGroup
+  PublicNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId:
+        Fn::ImportValue: !Sub '${vpcid}-vpcid'
+  InboundHttpPublicNetworkAclEntry:
+      Type: AWS::EC2::NetworkAclEntry
+      Properties:
+        NetworkAclId: !Ref PublicNetworkAcl
+        RuleNumber: 100
+        Protocol: 6
+        RuleAction: allow
+        Egress: false
+        CidrBlock: 0.0.0.0/0
+        PortRange:
+          From: 80
+          To: 80
+  InboundHttpsPublicNetworkAclEntry:
+      Type: AWS::EC2::NetworkAclEntry
+      Properties:
+        NetworkAclId: !Ref PublicNetworkAcl
+        RuleNumber: 110
+        Protocol: 6
+        RuleAction: allow
+        Egress: false
+        CidrBlock: 0.0.0.0/0
+        PortRange:
+          From: 443
+          To: 443
+  InboundEphemeralPortsPublicNetworkAclEntry:
+      Type: AWS::EC2::NetworkAclEntry
+      Properties:
+        NetworkAclId: !Ref PublicNetworkAcl
+        RuleNumber: 120
+        Protocol: 6
+        RuleAction: allow
+        Egress: false
+        CidrBlock: 0.0.0.0/0
+        PortRange:
+          From: 1024
+          To: 65535
+  OutboundPublicNetworkAclEntry:
+      Type: AWS::EC2::NetworkAclEntry
+      Properties:
+        NetworkAclId: !Ref PublicNetworkAcl
+        RuleNumber: 100
+        Protocol: 6
+        RuleAction: allow
+        Egress: true
+        CidrBlock: 0.0.0.0/0
+        PortRange:
+          From: 0
+          To: 65535
+  PublicSubnetNetworkAclAssociationA:
+      Type: AWS::EC2::SubnetNetworkAclAssociation
+      Properties:
+        SubnetId: !Ref SubnetPublicA
+        NetworkAclId: !Ref PublicNetworkAcl
+  PublicSubnetNetworkAclAssociationB:
+      Type: AWS::EC2::SubnetNetworkAclAssociation
+      Properties:
+        SubnetId: !Ref SubnetPublicB
+        NetworkAclId: !Ref PublicNetworkAcl
+  PrivateNetworkAcl:
+      Type: AWS::EC2::NetworkAcl
+      Properties:
+        VpcId:
+          Fn::ImportValue: !Sub '${vpcid}-vpcid'
+  InboundPrivateNetworkAclEntry:
+      Type: AWS::EC2::NetworkAclEntry
+      Properties:
+        NetworkAclId: !Ref PrivateNetworkAcl
+        RuleNumber: 100
+        Protocol: 6
+        RuleAction: allow
+        Egress: false
+        CidrBlock: 0.0.0.0/0
+        PortRange:
+          From: 0
+          To: 65535
+  OutboundPrivateNetworkAclEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl
+      RuleNumber: 100
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: 0
+        To: 65535
+  PrivateSubnetNetworkAclAssociationA:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref SubnetPrivateA
+      NetworkAclId: !Ref PrivateNetworkAcl
+  PrivateSubnetNetworkAclAssociationB:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref SubnetPrivateB
+      NetworkAclId: !Ref PrivateNetworkAcl
+
+Outputs:
+  StackName:
+    Description: The name of the stack
+    Value: !Ref AWS::StackName
+  appelb:
+    Description: ELB URL
+    Value: !Join ["", ["http://", !GetAtt ELB.DNSName]]
+  phpinfo:
+    Description: PHP Information
+    Value: !Join ["", ["http://", !GetAtt ELB.DNSName, '/info.php']]
+  appdb:
+    Description: DB Aurora URL
+    Value: !GetAtt DBAuroraCluster.Endpoint.Address
+  appdbport:
+    Description: DB Aurora Port
+    Value: !GetAtt DBAuroraCluster.Endpoint.Port
+  ag:
+    Description: AutoScaling Group
+    Value: !Ref AutoScalingGroup
+  efs:
+    Description: Shared Infrastructure File System
+    Value: !Ref FileSystem
+  instanceProfile:
+    Description: EC2 Instance Profile used by Launch Config
+    Value: "PHP70-ManagedInstanceProfile"
+    Export:
+      Name: !Sub "${AWS::StackName}-instance-profile"
+  SubnetPrivateA:
+    Description: Private Subnet A
+    Value: !Ref SubnetPrivateA
+  SubnetPrivateB:
+    Description: Private Subnet B
+    Value: !Ref SubnetPrivateB
+  Ec2SecurityGroup:
+    Description: Security Group for Web Servers
+    Value: !Ref WebSecurityGroup

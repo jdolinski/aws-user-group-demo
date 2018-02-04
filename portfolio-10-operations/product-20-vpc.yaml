@@ -1,0 +1,204 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Network VPC Configuration
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "VPC Networking Configuration"
+        Parameters:
+          - vpccidr
+          - publicacidr
+          - publicbcidr
+Parameters:
+  vpccidr:
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid CIDR range in the form x.x.x.x/16
+    Default: 10.0.0.0/16
+  publicacidr:
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid CIDR range in the form x.x.x.x/24
+    Default: 10.0.0.0/24
+  publicbcidr:
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid CIDR range in the form x.x.x.x/24
+    Default: 10.0.1.0/24
+Resources:
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: !Ref vpccidr
+      EnableDnsHostnames: 'true' # required for private DNS
+  IGW:
+    Type: "AWS::EC2::InternetGateway"
+
+  GatewayAttach:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref VPC
+  SubnetPublicSharedA:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref publicacidr
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+  SubnetPublicSharedB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref publicbcidr
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+  SubnetRouteTableAssociatePublicA:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      SubnetId: !Ref SubnetPublicSharedA
+  SubnetRouteTableAssociatePublicB:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      SubnetId: !Ref SubnetPublicSharedB
+  RouteDefaultPublic:
+    Type: "AWS::EC2::Route"
+    DependsOn: GatewayAttach
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref RouteTablePublic
+  RouteDefaultPrivateA:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayA
+      RouteTableId: !Ref RouteTablePrivateA
+  RouteDefaultPrivateB:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayB
+      RouteTableId: !Ref RouteTablePrivateB
+  RouteTablePublic:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+  RouteTablePrivateA:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+  RouteTablePrivateB:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+  EIPNatGWA:
+    DependsOn: GatewayAttach
+    Type: "AWS::EC2::EIP"
+    Properties:
+      Domain: vpc
+  EIPNatGWB:
+    DependsOn: GatewayAttach
+    Type: "AWS::EC2::EIP"
+    Properties:
+      Domain: vpc
+  NatGatewayA:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId: !GetAtt EIPNatGWA.AllocationId
+      SubnetId: !Ref SubnetPublicSharedA
+  NatGatewayB:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId: !GetAtt EIPNatGWB.AllocationId
+      SubnetId: !Ref SubnetPublicSharedB
+  DNS:
+    Type: "AWS::Route53::HostedZone"
+    Properties:
+      HostedZoneConfig:
+        Comment: "Hosted zone for internal DNS VPC resolution"
+      Name: "dotcomm.aws"
+      VPCs:
+        -
+          VPCId: !Ref VPC
+          VPCRegion: !Ref "AWS::Region"
+  BasicParameter:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Name: !Ref VPC
+      Type: "String"
+      Value: !Sub ${AWS::StackName}
+      Description: "Parameter SSM storage for VPC stacks using cross stack references."
+
+Outputs:
+  StackName:
+    Description: The name of the stack
+    Value: !Ref AWS::StackName
+  vpciprange:
+    Description: IP Range of Shared Infrastructure VPC
+    Value: !Ref vpccidr
+    Export:
+      Name: !Sub "${AWS::StackName}-vpciprange"
+  vpcreservedrange1:
+    Description: IP Range of Shared Public SubnetA
+    Value: !Ref publicacidr
+    Export:
+      Name: !Sub "${AWS::StackName}-vpcreservedrange1"
+  vpcreservedrange2:
+    Description: IP Range of Shared Public SubnetB
+    Value: !Ref publicbcidr
+    Export:
+      Name: !Sub "${AWS::StackName}-vpcreservedrange2"
+  vpcid:
+    Description: ID of Shared Infrastructure VPC
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${AWS::StackName}-vpcid"
+  natgatewayaid:
+    Description: ID of NAT Gateway A
+    Value: !Ref NatGatewayA
+  natgatewaybid:
+    Description: ID of NAT Gateway B
+    Value: !Ref NatGatewayB
+  publicroutetable:
+    Description: ID of Public Route Table
+    Value: !Ref RouteTablePublic
+    Export:
+      Name: !Sub "${AWS::StackName}-publicrt"
+  privateroutetablea:
+    Description: ID of Private Route Table - A
+    Value: !Ref RouteTablePrivateA
+    Export:
+      Name: !Sub "${AWS::StackName}-privaterta"
+  privateroutetableb:
+    Description: ID of Private Route Table - B
+    Value: !Ref RouteTablePrivateB
+    Export:
+      Name: !Sub "${AWS::StackName}-privatertb"
+  dns:
+    Description: Shared Infrastructure Hosted Zone
+    Value: !Ref DNS
+    Export:
+      Name: !Sub "${AWS::StackName}-dns"
+  publicsubneta:
+    Description: Shared Infrastructure Public Subnet A
+    Value: !Ref SubnetPublicSharedA
+    Export:
+      Name: !Sub "${AWS::StackName}-NatPublicSharedA"
+  publicsubnetb:
+    Description: Shared Infrastructure Public Subnet B
+    Value: !Ref SubnetPublicSharedB
+    Export:
+      Name: !Sub "${AWS::StackName}-NatPublicSharedB"
+
+

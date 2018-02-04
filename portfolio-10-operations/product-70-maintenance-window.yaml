@@ -1,0 +1,104 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Define Maintenance Windows and Targets
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Maintenance Window"
+        Parameters:
+          - name
+          - description
+          - schedule
+          - cutoff
+          - duration
+      -
+        Label:
+          default: "Maintenance Target"
+        Parameters:
+          - targetname
+          - targetdescription
+          - tagkey
+          - tagval
+
+Parameters:
+  tagkey:
+    Type: String
+    AllowedPattern: ".+"
+    Description: Tag Key
+  tagval:
+    Type: String
+    AllowedPattern: ".+"
+    Description: Tag Value
+  schedule:
+    Type: String
+    AllowedPattern: ".+"
+    Description: The schedule of the Maintenance Window in the form of a cron or rate expression "cron(0 5 ? * 6 *)".
+    Default: cron(0 6 * * ? *)
+  cutoff:
+    Type: Number
+    Description: The number of hours before the end of the Maintenance Window that Systems Manager stops scheduling new tasks for execution.
+    Default: 1
+  duration:
+    Type: Number
+    Description: The duration of the Maintenance Window in hours.
+    Default: 4
+  name:
+    Type: String
+    AllowedPattern: ".+"
+    Description: The Name of the Maintenance Window.
+  description:
+    Type: String
+    AllowedPattern: ".+"
+    Description: A description of the Maintenance Window.
+  targetname:
+    Type: String
+    AllowedPattern: ".+"
+    Description: The Name of the Maintenance Target.
+  targetdescription:
+    Type: String
+    AllowedPattern: ".+"
+    Description: A description of the Maintenance Target.
+
+Resources:
+  MaintenanceWindow:
+    Type: 'AWS::SSM::MaintenanceWindow'
+    Properties:
+      Description: !Ref description
+      AllowUnassociatedTargets: True
+      Cutoff: !Ref cutoff
+      Schedule: !Ref schedule
+      Duration: !Ref duration
+      Name: !Ref name
+      
+  MaintenanceWindowTarget:
+    Type: 'AWS::SSM::MaintenanceWindowTarget'
+    Properties:
+      Name: !Ref targetname
+      OwnerInformation: jdolinski@dotcomm.org
+      Description: !Ref targetdescription
+      WindowId: !Ref MaintenanceWindow
+      ResourceType: "INSTANCE"
+      Targets:
+        - Key: !Sub tag:${tagkey}
+          Values:
+            - !Ref tagval
+
+Outputs:
+  MaintenanceWindow:
+    Description: Maintenance Window Name
+    Value: !Ref MaintenanceWindow
+    Export:
+      Name: !Sub "${name}-MaintenanceWindow"
+  MaintenanceWindowTarget:
+    Description: Maintenance Window Target Name
+    Value: !Ref MaintenanceWindowTarget
+    Export:
+      Name: !Sub "${name}-MaintenanceWindowTarget"
+  MaintenanceTargetKey:
+    Description: Maintenance Target Key
+    Value: !Ref tagkey
+  MaintenanceTargetVal:
+    Description: Maintenance Target Value
+    Value: !Ref tagval

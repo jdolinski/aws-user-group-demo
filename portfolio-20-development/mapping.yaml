@@ -1,0 +1,24 @@
+name: Development
+description: Contains all Products to Host PHP Websites
+owner: jdolinski@dotcomm.org
+products:
+- name: 40-website-infrastructure-product
+  template: product-40-website-infrastructure.yaml
+  owner: jdolinski@dotcomm.org
+  description: Creates infrastructure to host PHP websites
+- name: 35-php-70-configuration-product
+  template: product-35-php-70-configuration.yaml
+  owner: jdolinski@dotcomm.org
+  description: Create PHP 70 AMI
+- name: 120-website-product
+  template: product-120-website.yaml
+  owner: jdolinski@dotcomm.org
+  description: Setup PHP website
+accounts:
+  - identifier: AWS User Group Demo
+    number: "Enter Account Here"
+tags:
+- Key: Name
+  Value: Development
+principals:
+- group/administrators

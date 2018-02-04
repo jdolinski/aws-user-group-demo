@@ -1,0 +1,176 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: OS Patching Policies
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Maintenance Window"
+        Parameters:
+          - name
+      -
+        Label:
+          default: "Defines information about a task for a Maintenance Window"
+        Parameters:
+          - priority
+          - maxconcurrency
+          - maxerrors
+          - description
+          - operation
+
+Parameters:
+  name:
+    Type: String
+    AllowedPattern: ".+"
+    Description: Name of the Maintenance Window to Apply Update Tasks
+  priority:
+    Type: Number
+    Description: The priority of the task in the Maintenance Window. The lower the number, the higher the priority. Tasks that have the same priority are scheduled in parallel.
+    Default: 1
+  maxconcurrency:
+    Type: Number
+    Description: The maximum number of targets that you can run this task for, in parallel.
+    Default: 5
+  maxerrors:
+    Type: Number
+    Description: The maximum number of errors allowed before this task stops being scheduled.
+    Default: 1
+  description:
+    Type: String
+    Description: A description of the task.
+    Default: Operating System Patching
+  operation:
+    Type: String
+    AllowedValues:
+      - Install
+      - Scan
+    Description: The system checks if patches specified in the patch baseline are installed on the instance. The install operation installs patches missing from the baseline.
+    Default: Install
+
+Resources:
+
+  MaintenanceWindowTask:
+    Type: "AWS::SSM::MaintenanceWindowTask"
+    Properties:
+      MaxErrors: !Ref maxerrors
+      Description: !Ref description
+      ServiceRoleArn: !GetAtt PatchRole.Arn
+      Priority: !Ref priority
+      MaxConcurrency: !Ref maxconcurrency
+      TaskInvocationParameters:
+        MaintenanceWindowRunCommandParameters:
+          OutputS3BucketName: !Ref S3PatchBucket
+          Parameters:
+            Operation:
+              - !Ref operation
+      Targets:
+        - Key: WindowTargetIds
+          Values:
+            - Fn::ImportValue: !Sub '${name}-MaintenanceWindowTarget'
+      TaskArn: AWS-RunPatchBaseline
+      WindowId:
+        Fn::ImportValue: !Sub '${name}-MaintenanceWindow'
+      TaskType: RUN_COMMAND
+
+  # https://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-patch-baselines.html
+  SecurityCriticalAmazonLinux:
+    Type: 'AWS::SSM::PatchBaseline'
+    Properties:
+      OperatingSystem: AMAZON_LINUX
+      PatchGroups:
+        - Prod
+      Description: Amazon Linux Critical Security Patches
+      ApprovedPatchesComplianceLevel: CRITICAL
+      ApprovalRules:
+        PatchRules:
+          - PatchFilterGroup:
+              PatchFilters:
+                - Key: CLASSIFICATION
+                  Values:
+                    - Security
+                - Key: SEVERITY
+                  Values:
+                    - Critical
+                    - Important
+            ApproveAfterDays: 3
+            ComplianceLevel: CRITICAL
+      Name: Critical-AMALNX-Security-Patches-Prod
+
+  PatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - ssm.amazonaws.com
+                - sns.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: ssm-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: Allow
+                Action: "*"
+                Resource: "*"
+
+## Logs
+
+  S3PatchBucketRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-s3patchbucket-role-${AWS::Region}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+
+  S3PatchBucketPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${AWS::StackName}-s3patchbucket-policy-${AWS::Region}
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - ssm:*
+            Resource: "*"
+          -
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetBucketPolicy
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+             - !Join ['',['arn:aws:s3:::',!Ref S3PatchBucket, '/*']]
+             - !Join ['',['arn:aws:s3:::',!Ref S3PatchBucket]]
+      Roles:
+        - !Ref S3PatchBucketRole
+
+  S3PatchBucket:
+    Type: "AWS::S3::Bucket"
+    DeletionPolicy: Retain
+
+Outputs:
+  TaskName:
+    Description: The name of the maintenance window the task is assigned.
+    Value: !Ref name

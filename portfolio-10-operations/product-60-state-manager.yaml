@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Defines document for AWS desired state management
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Target Tags"
+        Parameters:
+          - tagkey
+          - tagval
+      -
+        Label:
+          default: "Schedule"
+        Parameters:
+          - schedule
+Parameters:
+  tagkey:
+    Type: String
+    AllowedPattern: ".+"
+    Description: Tag Key
+  tagval:
+    Type: List<String>
+    AllowedPattern: ".+"
+    Description: Tag Value
+  schedule:
+    Type: String
+    AllowedPattern: ".+"
+    Description: Schedule
+    Default: rate(30 minutes)
+
+Resources:
+
+  UpdateSSMAgent: # Example of Command Document
+    Type: AWS::SSM::Association
+    Properties:
+      Name: AWS-UpdateSSMAgent
+      ScheduleExpression: !Ref schedule
+      Targets:
+        - Key: !Sub tag:${tagkey}
+          Values: !Ref tagval
+
+  InspectorInstall: # Example of Command Document
+    Type: AWS::SSM::Association
+    Properties:
+      Name: AmazonInspector-ManageAWSAgent
+      ScheduleExpression: !Ref schedule
+      Parameters:
+        Operation:
+          - Install
+      Targets:
+        - Key: !Sub tag:${tagkey}
+          Values: !Ref tagval
+
+  GatherSoftwareInventory: # Example of Policy Document
+    Type: AWS::SSM::Association
+    Properties:
+      Name: AWS-GatherSoftwareInventory
+      ScheduleExpression: !Ref schedule
+      Targets:
+        - Key: !Sub tag:${tagkey}
+          Values: !Ref tagval
+
+Outputs:
+  StackName:
+    Description: The name of the stack
+    Value: !Ref AWS::StackName

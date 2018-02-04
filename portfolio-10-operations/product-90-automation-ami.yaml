@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AMI Updates
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Maintenance Window"
+        Parameters:
+          - name
+          - webstack
+      -
+        Label:
+          default: "Defines information about a task for a Maintenance Window"
+        Parameters:
+          - priority
+          - maxconcurrency
+          - maxerrors
+          - description
+          - ami
+
+Parameters:
+  name:
+    Type: String
+    AllowedPattern: ".+"
+    Description: Name of the Maintenance Window to Apply Update Tasks
+  webstack:
+    Type: String
+    AllowedPattern: ".+"
+    Description: Stack Name of the Web Infrastructure to Apply Update Tasks
+  ami:
+    Type: List<String>
+    Description: The source Amazon Machine Image ID.
+    Default: ami-97785bed
+  priority:
+    Type: Number
+    Description: The priority of the task in the Maintenance Window. The lower the number, the higher the priority. Tasks that have the same priority are scheduled in parallel.
+    Default: 2
+  maxconcurrency:
+    Type: Number
+    Description: The maximum number of targets that you can run this task for, in parallel.
+    Default: 5
+  maxerrors:
+    Type: Number
+    Description: The maximum number of errors allowed before this task stops being scheduled.
+    Default: 1
+  description:
+    Type: String
+    Description: A description of the task.
+    Default: Update Linux AMI
+
+Resources:
+
+  UpdateLinuxAmi:
+    Type: "AWS::SSM::MaintenanceWindowTask"
+    Properties:
+      MaxErrors: !Ref maxerrors
+      Description: !Ref description
+      ServiceRoleArn: !GetAtt AutomationRole.Arn
+      Priority: !Ref priority
+      MaxConcurrency: !Ref maxconcurrency
+      TaskInvocationParameters:
+        MaintenanceWindowAutomationParameters:
+          Parameters:
+            SourceAmiId: !Ref ami
+            InstanceIamRole:
+              - Fn::ImportValue: !Sub "${webstack}-instance-profile"
+            AutomationAssumeRole:
+              - !GetAtt AutomationRole.Arn
+      Targets:
+        - Key: WindowTargetIds
+          Values:
+            - Fn::ImportValue: !Sub '${name}-MaintenanceWindowTarget'
+      TaskArn: Php70SsmDocument
+      WindowId:
+        Fn::ImportValue: !Sub '${name}-MaintenanceWindow'
+      TaskType: AUTOMATION
+
+  AutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - ssm.amazonaws.com
+                - sns.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: ssm-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: Allow
+                Action: "*"
+                Resource: "*"
+
+Outputs:
+  TaskName:
+    Description: The name of the maintenance window the task is assigned.
+    Value: !Ref name

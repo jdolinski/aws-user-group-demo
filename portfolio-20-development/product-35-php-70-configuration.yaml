@@ -1,0 +1,238 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'PHP 7.0 AMI Build'
+Resources:
+  Php70Config:
+    Type: AWS::SSM::Document
+    Properties:
+      Content:
+        schemaVersion: '0.3'
+        description: Updates AMI with Linux distribution packages and Amazon software.
+          For details,see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/sysman-ami-walkthrough.html
+        assumeRole: !GetAtt AutomationServiceRole.Arn
+        parameters:
+          SourceAmiId:
+            type: String
+            description: "(Required) The source Amazon Machine Image ID."
+            default: "ami-97785bed"
+          TargetAmiName:
+            type: String
+            description: "(Optional) The name of the new AMI that will be created.
+              Default is a system-generated string including the source AMI id, and
+              the creation time and date."
+            default: Php70LinuxAmi_from_{{SourceAmiId}}_on_{{global:DATE_TIME}}
+          InstanceType:
+            type: String
+            description: "(Optional) Type of instance to launch as the workspace host."
+            default: t2.micro
+        mainSteps:
+        - name: launchInstance
+          action: aws:runInstances
+          maxAttempts: 3
+          timeoutSeconds: 1200
+          onFailure: Abort
+          inputs:
+            ImageId: "{{SourceAmiId}}"
+            InstanceType: "{{InstanceType}}"
+            UserData:
+              Fn::Base64: !Sub |
+                  #!/bin/bash
+
+                  function get_contents() {
+                      if [ -x "$(which curl)" ]; then
+                          curl -s -f "$1"
+                      elif [ -x "$(which wget)" ]; then
+                          wget "$1" -O -
+                      else
+                          die "No download utility (curl, wget)"
+                      fi
+                  }
+
+                  IDENTITY_URL = "http://169.254.169.254/2016-06-30/dynamic/instance-identity/document/"
+                  TRUE_REGION = $(get_contents "$IDENTITY_URL" | awk -F\" '/region/ { print $4 }')
+                  DEFAULT_REGION = "us-east-1"
+                  REGION = "$TRUE_REGION":-"$DEFAULT_REGION"
+
+                  SCRIPT_NAME = "aws-install-ssm-agent"
+                  SCRIPT_URL = "https://aws-ssm-downloads-$REGION.s3.amazonaws.com/scripts/$SCRIPT_NAME"
+
+                  if [ "$REGION" = "cn-north-1" ]; then
+                    SCRIPT_URL = "https://aws-ssm-downloads-$REGION.s3.cn-north-1.amazonaws.com.cn/scripts/$SCRIPT_NAME"
+                  fi
+
+                  if [ "$REGION" = "us-gov-west-1" ]; then
+                    SCRIPT_URL = "https://aws-ssm-downloads-$REGION.s3-us-gov-west-1.amazonaws.com/scripts/$SCRIPT_NAME"
+                  fi
+
+                  cd /tmp
+                  FILE_SIZE = 0
+                  MAX_RETRY_COUNT = 3
+                  RETRY_COUNT = 0
+
+                  while [ $RETRY_COUNT -lt $MAX_RETRY_COUNT ] ; do
+                    echo AWS-UpdateLinuxAmi: Downloading script from $SCRIPT_URL
+                    get_contents "$SCRIPT_URL"
+
+            MinInstanceCount: 1
+            MaxInstanceCount: 1
+            IamInstanceProfileName: ManagedInstanceProfile
+        - name: removePhpHttpd
+          action: aws:runCommand
+          maxAttempts: 3
+          timeoutSeconds: 3600
+          onFailure: Abort
+          inputs:
+            DocumentName: AWS-RunShellScript
+            InstanceIds:
+            - "{{launchInstance.InstanceIds}}"
+            Parameters:
+              commands:
+              - yum -y remove httpd* php*
+        - name: removeSsh
+          action: aws:runCommand
+          maxAttempts: 3
+          timeoutSeconds: 3600
+          onFailure: Abort
+          inputs:
+            DocumentName: AWS-RunShellScript
+            InstanceIds:
+            - "{{launchInstance.InstanceIds}}"
+            Parameters:
+              commands:
+              - yum -y remove openssh-server
+        - name: installPhp70Httpd
+          action: aws:runCommand
+          maxAttempts: 3
+          timeoutSeconds: 3600
+          onFailure: Abort
+          inputs:
+            DocumentName: AWS-RunShellScript
+            InstanceIds:
+            - "{{launchInstance.InstanceIds}}"
+            Parameters:
+              commands:
+              - yum -y install httpd24 php70 php70-mysqlnd
+        - name: installCodeDeployAgent
+          action: aws:runCommand
+          maxAttempts: 3
+          timeoutSeconds: 3600
+          onFailure: Abort
+          inputs:
+            DocumentName: AWS-RunShellScript
+            InstanceIds:
+            - "{{launchInstance.InstanceIds}}"
+            Parameters:
+              commands:
+              - cd /home/ec2-user
+              - wget https://aws-codedeploy-us-east-1.s3.amazonaws.com/latest/install
+              - chmod +x ./install
+              - ./install auto
+        - name: startHttpd
+          action: aws:runCommand
+          maxAttempts: 3
+          timeoutSeconds: 3600
+          onFailure: Abort
+          inputs:
+            DocumentName: AWS-RunShellScript
+            InstanceIds:
+            - "{{launchInstance.InstanceIds}}"
+            Parameters:
+              commands:
+              - service httpd start
+              - chkconfig httpd on
+        - name: stopInstance
+          action: aws:changeInstanceState
+          maxAttempts: 3
+          timeoutSeconds: 1200
+          onFailure: Abort
+          inputs:
+            InstanceIds:
+            - "{{launchInstance.InstanceIds}}"
+            DesiredState: stopped
+        - name: createImage
+          action: aws:createImage
+          maxAttempts: 3
+          onFailure: Abort
+          inputs:
+            InstanceId: "{{launchInstance.InstanceIds}}"
+            ImageName: "{{TargetAmiName}}"
+            NoReboot: true
+            ImageDescription: AMI Generated by EC2 Automation on {{global:DATE_TIME}}
+              from {{SourceAmiId}}
+        - name: terminateInstance
+          action: aws:changeInstanceState
+          maxAttempts: 3
+          onFailure: Continue
+          inputs:
+            InstanceIds:
+            - "{{launchInstance.InstanceIds}}"
+            DesiredState: terminated
+        outputs:
+        - createImage.ImageId
+      DocumentType: Automation
+
+  ManagedInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ssm.amazonaws.com
+            - ec2.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+      Path: "/"
+
+  ManagedInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - !Ref ManagedInstanceRole
+      InstanceProfileName: ManagedInstanceProfile
+
+  AutomationServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ssm.amazonaws.com
+            - ec2.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Path: "/"
+      RoleName: AutomationServiceRole
+      Policies:
+      - PolicyName: passrole
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - iam:PassRole
+            Resource:
+            - !GetAtt ManagedInstanceRole.Arn
+
+Outputs:
+  StackName:
+    Description: The name of the stack
+    Value: !Ref AWS::StackName
+  AutomationServiceRole:
+    Description: Service Role for Automation
+    Value: !Ref AutomationServiceRole
+    Export:
+      Name: "PHP70-AutomationServiceRole"
+  ManagedInstanceProfile:
+    Description: Instance Profile to allow SSM to manage
+    Value: !Ref ManagedInstanceProfile
+    Export:
+      Name: "PHP70-ManagedInstanceProfile"
+

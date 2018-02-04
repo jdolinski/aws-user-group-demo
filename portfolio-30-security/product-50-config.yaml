@@ -1,0 +1,286 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Define required configuration policies for AWS resources."
+Resources:
+# Compute
+
+  ForEc2InVpc:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::EC2::Instance"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "INSTANCES_IN_VPC"
+
+  ForEc2VolumeInUseCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::EC2::Volume"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "EC2_VOLUME_INUSE_CHECK"
+
+  ForAsGrpHealthCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::AutoScaling::AutoScalingGroup"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "AUTOSCALING_GROUP_ELB_HEALTHCHECK_REQUIRED"
+
+  ForEipsAttachedCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::EC2::EIP"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "EIP_ATTACHED"
+
+# Database
+
+  ForDbInstanceBackupCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      InputParameters:
+        backupRetentionPeriod: 30
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::RDS::DBInstance"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "DB_INSTANCE_BACKUP_ENABLED"
+
+  ForDynamoThroughputLimitCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      MaximumExecutionFrequency: One_Hour
+      InputParameters:
+        accountRCUThresholdPercentage: 75
+        accountWCUThresholdPercentage: 75
+      Source:
+        Owner: AWS
+        SourceIdentifier: "DYNAMODB_THROUGHPUT_LIMIT_CHECK"
+
+  ForDynamoAsEnabledCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      MaximumExecutionFrequency: One_Hour
+      Source:
+        Owner: AWS
+        SourceIdentifier: "DYNAMODB_AUTOSCALING_ENABLED"
+
+  ForRdsMultiAzCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::RDS::DBInstance"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "RDS_MULTI_AZ_SUPPORT"
+
+# Management
+
+  ForCloudTrail:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      MaximumExecutionFrequency: One_Hour
+      Source:
+        Owner: AWS
+        SourceIdentifier: "CLOUD_TRAIL_ENABLED"
+
+  ForCfnStackNotificationCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::CloudFormation::Stack"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "CLOUDFORMATION_STACK_NOTIFICATION_CHECK"
+
+  ForCloudWatchAlarmActionCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::CloudWatch::Alarm"
+      InputParameters:
+        alarmActionRequired: true
+        insufficientDataActionRequired: true
+        okActionRequired: false
+      Source:
+        Owner: AWS
+        SourceIdentifier: "CLOUDWATCH_ALARM_ACTION_CHECK"
+
+  ForVolumeTags:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      InputParameters:
+        tag1Key: CostCenter
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::EC2::Volume"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "REQUIRED_TAGS"
+
+# Security
+
+  ForCertMgrExpirationCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      MaximumExecutionFrequency: One_Hour
+      InputParameters:
+        daysToExpiration: 30
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::ACM::Certificate"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "ACM_CERTIFICATE_EXPIRATION_CHECK"
+
+  ForIamPasswordPolicyCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      MaximumExecutionFrequency: One_Hour
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::IAM::User"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "IAM_PASSWORD_POLICY"
+
+  ForIamGroupMembershipCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::IAM::User"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "IAM_USER_GROUP_MEMBERSHIP_CHECK"
+
+  ForIamUserNoInlinePoliciesCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::IAM::User"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "IAM_USER_NO_POLICIES_CHECK"
+
+  ForRootMfaCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      MaximumExecutionFrequency: One_Hour
+      Source:
+        Owner: AWS
+        SourceIdentifier: "ROOT_ACCOUNT_MFA_ENABLED"
+
+# Storage
+
+  ForS3LoggingCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::S3::Bucket"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "S3_BUCKET_LOGGING_ENABLED"
+
+  ForS3PublicReadCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::S3::Bucket"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "S3_BUCKET_PUBLIC_READ_PROHIBITED"
+
+  ForS3PublicWriteCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::S3::Bucket"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "S3_BUCKET_PUBLIC_WRITE_PROHIBITED"
+
+  ForS3SslOnlyCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::S3::Bucket"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "S3_BUCKET_SSL_REQUESTS_ONLY"
+
+  ForS3VersioningCheck:
+    Type: "AWS::Config::ConfigRule"
+    Properties:
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::S3::Bucket"
+      Source:
+        Owner: AWS
+        SourceIdentifier: "S3_BUCKET_VERSIONING_ENABLED"
+
+# Config Logging
+  S3ConfigRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-s3config-role-${AWS::Region}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - config.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+
+  S3ConfigPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${AWS::StackName}-s3config-policy-${AWS::Region}
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - config:*
+            Resource: "*"
+          -
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetBucketPolicy
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+             - !Join ['',['arn:aws:s3:::',!Ref S3ConfigBucket, '/*']]
+             - !Join ['',['arn:aws:s3:::',!Ref S3ConfigBucket]]
+      Roles:
+        -
+          !Ref S3ConfigRole
+
+  S3ConfigBucket:
+    Type: "AWS::S3::Bucket"
+    DeletionPolicy: Retain

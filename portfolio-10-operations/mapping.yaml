@@ -1,0 +1,40 @@
+name: Operations
+description: Contains all Provisioning & Maintenance Products for Shared Infrastructure
+owner: jdolinski@dotcomm.org
+products:
+- name: 10-shared-code-storage
+  template: product-10-shared-storage.yaml
+  owner: jdolinski@dotcomm.org
+  description: Creates buckets to hold lambda and app code
+- name: 20-vpc-product
+  template: product-20-vpc.yaml
+  owner: jdolinski@dotcomm.org
+  description: Creates a VPC and all related components
+- name: 30-autosubnet-product
+  template: product-30-autosubnet.yaml
+  owner: jdolinski@dotcomm.org
+  description: Custom Resource for infrastructure to auto generate unused cidr ranges in a VPC
+- name: 60-state-manager-product
+  template: product-60-state-manager.yaml
+  owner: jdolinski@dotcomm.org
+  description: Define consistent state policies and command documents
+- name: 70-maintenance-window-product
+  template: product-70-maintenance-window.yaml
+  owner: jdolinski@dotcomm.org
+  description: Create maintenance window and target
+- name: 80-os-patch-manager-product
+  template: product-80-os-patch-manager.yaml
+  owner: jdolinski@dotcomm.org
+  description: Create patch policy baselines and maintenance task
+- name: 90-automation-ami-product
+  template: product-90-automation-ami.yaml
+  owner: jdolinski@dotcomm.org
+  description: Create new AMI
+accounts:
+  - identifier: AWS User Group Demo
+    number: "Enter Account Here"
+tags:
+- Key: Name
+  Value: Operations
+principals:
+- group/administrators
