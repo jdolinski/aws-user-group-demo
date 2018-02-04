@@ -1,4 +1,4 @@
-#Your City & County on the AWS Cloud
+# Your City & County on the AWS Cloud
 February 5, 2018
 - [Omaha AWS Meetup](https://www.meetup.com/Omaha-Amazon-Web-Services-Meetup/events/246454308/)
 - [Presentation Slides]()
@@ -12,14 +12,14 @@ Some examples are not region agnostic and will need to be modified to run in all
 **Important: Some services used in this project are excluded from the free tier. You will be charged for provisioning
 resources.**
 
-##References
+## References
 
 - [AWS Pipeline to Service Catalog](https://github.com/awslabs/aws-pipeline-to-service-catalog)
 - [AWS Organizations](https://aws.amazon.com/organizations/)
 - [AWS Tagging Strategies](https://aws.amazon.com/answers/account-management/aws-tagging-strategies/)
 - [Deep Dive on AWS CloudFormation](https://www.youtube.com/watch?v=01hy48R9Kr8)
 
-##AWS Services Used
+## AWS Services Used
 
 - AutoScaling
 - CodeBuild
@@ -44,7 +44,7 @@ resources.**
 - Trusted Advisor
 - VPC
 
-##Prerequisites
+## Prerequisites
 
 - AWS Account
 - AWS CLI
@@ -53,10 +53,10 @@ resources.**
 - [PyCharm (optional)](https://www.jetbrains.com/pycharm/)      
 
 
-##Getting Started
+## Getting Started
 First clone this repo: `git clone https://github.com/jdolinski/aws-user-group-demo`
 
-##Initial Setup
+## Initial Setup
 
 Open CloudFormation on your AWS account and create a stack from template `00-pipeline-to-service-catalog.yaml`
 
@@ -78,5 +78,5 @@ we will need to manually upload two zip packages.
 The templates will create stacks and provision additional resources (not all free). You can run the templates
 in the numerical product order. Some templates will use cross stack references for input into the next template.
 
-##Final Steps
+## Final Steps
 Remember to tear down all your stacks to avoid unnecessary costs in your AWS account.
