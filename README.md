@@ -1,7 +1,7 @@
 # Your City & County on the AWS Cloud
 February 5, 2018
 - [Omaha AWS Meetup](https://www.meetup.com/Omaha-Amazon-Web-Services-Meetup/events/246454308/)
-- [Presentation Slides]()
+- [Presentation Slides](https://www.slideshare.net/JimDolinski1/omaha-aws-meetup-group)
 
 This repository is a collection of AWS CloudFormation demo examples to help manage your environment in a [DevSecOps](http://www.devsecops.org/) 
 approach. Using the fictitious business case "Your Company’s AWS Footprint and Usage is Growing Beyond a Single Business 
