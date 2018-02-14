@@ -100,6 +100,9 @@ Resources:
     DeletionPolicy: Retain
 
 Outputs:
+  StackName:
+    Description: The name of the stack
+    Value: !Ref AWS::StackName
   appbucket:
     Description: Shared Infrastructure Application Bucket Name
     Value: !Ref S3AppBucket
